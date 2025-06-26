@@ -1,0 +1,86 @@
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+
+local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
+gui.Name = "SenhaHUD"
+gui.ResetOnSpawn = false
+
+local senhas = {}  -- id -> {part, label}
+
+local function criarLabel(texto, id, part)
+	local label = Instance.new("TextLabel")
+	label.Name = "Senha_" .. id
+	label.Size = UDim2.new(0, 80, 0, 20)
+	label.Position = UDim2.new(0, 10, 0, 10 + (#gui:GetChildren() * 25))
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.new(1,1,1)
+	label.TextStrokeColor3 = Color3.new(0,0,0)
+	label.TextStrokeTransparency = 0
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 18
+	label.Text = texto
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Parent = gui
+
+	senhas[id] = { part = part, label = label }
+end
+
+local function processar(model)
+	local part = model:FindFirstChild("BankCombo")
+	if not part then return end
+	local gui = part:FindFirstChild("SurfaceGui")
+	if not gui then return end
+	local txt = gui:FindFirstChildWhichIsA("TextLabel")
+	if not txt then return end
+	if not string.match(txt.Text, "^%d%d%d%d%d$") then return end
+
+	local id = model:GetDebugId()
+	if not senhas[id] then
+		criarLabel(txt.Text, id, part)
+	end
+end
+
+-- Detecta drops em RuntimeItems
+local function monitorar(runtime)
+	for _, v in ipairs(runtime:GetChildren()) do
+		if v.Name == "BankCombo" then processar(v) end
+	end
+	runtime.ChildAdded:Connect(function(c)
+		if c.Name == "BankCombo" then
+			task.wait(0.5)
+			processar(c)
+		end
+	end)
+end
+
+-- Se já existir
+local base = workspace:FindFirstChild("RuntimeItems")
+if base then monitorar(base) end
+
+-- Se nascer depois
+workspace.ChildAdded:Connect(function(obj)
+	if obj.Name == "RuntimeItems" then
+		monitorar(obj)
+	end
+end)
+
+-- Atualiza visibilidade
+RunService.RenderStepped:Connect(function()
+	local i = 0
+	for id, info in pairs(senhas) do
+		local ok, pos = pcall(function() return info.part.Position end)
+		if not ok or not info.part:IsDescendantOf(workspace) then
+			info.label:Destroy()
+			senhas[id] = nil
+		else
+			local dist = (hrp.Position - pos).Magnitude
+			info.label.Position = UDim2.new(0, 10, 0, 10 + (i * 25))
+			info.label.Visible = dist <= 1000
+			i += 1
+		end
+	end
+end)
