@@ -9,16 +9,31 @@ local gui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
 gui.Name = "SenhaHUD"
 gui.ResetOnSpawn = false
 
-local senhas = {}  -- id -> {part, label}
+local senhas = {}
+local pecas = {}
+
+local ordem = {
+	"FirstPiece", "SecondPiece", "ThirdPiece", "FourthPiece", "FifthPiece"
+}
+
+local function getPartPosition(obj)
+	if obj:IsA("BasePart") then
+		return obj.Position
+	elseif obj:IsA("Model") then
+		local part = obj:FindFirstChildWhichIsA("BasePart", true)
+		if part then return part.Position end
+	end
+	return nil
+end
 
 local function criarLabel(texto, id, part)
 	local label = Instance.new("TextLabel")
 	label.Name = "Senha_" .. id
-	label.Size = UDim2.new(0, 80, 0, 20)
+	label.Size = UDim2.new(0, 120, 0, 20)
 	label.Position = UDim2.new(0, 10, 0, 10 + (#gui:GetChildren() * 25))
 	label.BackgroundTransparency = 1
-	label.TextColor3 = Color3.new(1,1,1)
-	label.TextStrokeColor3 = Color3.new(0,0,0)
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.TextStrokeColor3 = Color3.new(0, 0, 0)
 	label.TextStrokeTransparency = 0
 	label.Font = Enum.Font.GothamBold
 	label.TextSize = 18
@@ -29,12 +44,32 @@ local function criarLabel(texto, id, part)
 	senhas[id] = { part = part, label = label }
 end
 
-local function processar(model)
+local function atualizarSenhaPecas()
+	for _, nome in ipairs(ordem) do
+		if not pecas[nome] then return end
+	end
+
+	local senha = ""
+	local ultimaPart
+	for _, nome in ipairs(ordem) do
+		senha ..= tostring(pecas[nome].texto or "")
+		ultimaPart = pecas[nome].part
+	end
+
+	if not senhas["_pecas"] then
+		criarLabel(senha, "_pecas", ultimaPart)
+	else
+		senhas["_pecas"].label.Text = senha
+		senhas["_pecas"].part = ultimaPart
+	end
+end
+
+local function processarCombo(model)
 	local part = model:FindFirstChild("BankCombo")
 	if not part then return end
-	local gui = part:FindFirstChild("SurfaceGui")
-	if not gui then return end
-	local txt = gui:FindFirstChildWhichIsA("TextLabel")
+	local surf = part:FindFirstChild("SurfaceGui")
+	if not surf then return end
+	local txt = surf:FindFirstChildWhichIsA("TextLabel")
 	if not txt then return end
 	if not string.match(txt.Text, "^%d%d%d%d%d$") then return end
 
@@ -44,36 +79,60 @@ local function processar(model)
 	end
 end
 
--- Detecta drops em RuntimeItems
+local function processarPeca(obj)
+	if table.find(ordem, obj.Name) then
+		local surf = obj:FindFirstChild("SurfaceGui") or obj:FindFirstChildWhichIsA("SurfaceGui", true)
+		if not surf then return end
+		local txt = surf:FindFirstChildWhichIsA("TextLabel")
+		if not txt then return end
+		local valor = txt.Text
+		if not string.match(valor, "^%d$") then return end
+		pecas[obj.Name] = { texto = valor, part = obj }
+		atualizarSenhaPecas()
+	end
+end
+
 local function monitorar(runtime)
 	for _, v in ipairs(runtime:GetChildren()) do
-		if v.Name == "BankCombo" then processar(v) end
+		if v.Name == "BankCombo" then
+			processarCombo(v)
+		elseif table.find(ordem, v.Name) then
+			processarPeca(v)
+		end
 	end
-	runtime.ChildAdded:Connect(function(c)
-		if c.Name == "BankCombo" then
+
+	runtime.ChildAdded:Connect(function(obj)
+		if obj.Name == "BankCombo" then
 			task.wait(0.5)
-			processar(c)
+			processarCombo(obj)
+		elseif table.find(ordem, obj.Name) then
+			task.wait(0.5)
+			processarPeca(obj)
 		end
 	end)
 end
 
--- Se já existir
 local base = workspace:FindFirstChild("RuntimeItems")
 if base then monitorar(base) end
 
--- Se nascer depois
 workspace.ChildAdded:Connect(function(obj)
 	if obj.Name == "RuntimeItems" then
 		monitorar(obj)
 	end
 end)
 
--- Atualiza visibilidade
+workspace.DescendantAdded:Connect(function(obj)
+	if obj:IsA("Model") and table.find(ordem, obj.Name) then
+		task.wait(0.5)
+		processarPeca(obj)
+	end
+end)
+
 RunService.RenderStepped:Connect(function()
 	local i = 0
 	for id, info in pairs(senhas) do
-		local ok, pos = pcall(function() return info.part.Position end)
-		if not ok or not info.part:IsDescendantOf(workspace) then
+		local pos = getPartPosition(info.part)
+		if not pos then
 			info.label:Destroy()
 			senhas[id] = nil
 		else
